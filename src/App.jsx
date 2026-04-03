@@ -32,7 +32,7 @@ function mergeState(items, stored) {
       if (s.approval === "Objected" || s.approval === "Flagged") s.approval = "Rejected";
       merged[item.id] = s;
     } else {
-      merged[item.id] = { approval: "Pending", notes: "", notesTimestamp: null };
+      merged[item.id] = { approval: "Pending", notes: "", notesTimestamp: null, image: null };
     }
   });
   return merged;
@@ -107,10 +107,20 @@ function CategoryBadge({ category }) {
   );
 }
 
-function ContentCard({ item, state, onSetStatus, onNote, large }) {
+function ContentCard({ item, state, onSetStatus, onNote, onImage, large }) {
   const [showNotes, setShowNotes] = useState(false);
   const [noteText, setNoteText] = useState(state.notes || "");
   const [pendingStatus, setPendingStatus] = useState(null);
+  const fileInputRef = useState(null);
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => onImage(item.id, ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const handleAction = (status) => {
     if (NOTE_REQUIRED.includes(status) && !state.notes && !noteText.trim()) {
@@ -140,6 +150,12 @@ function ContentCard({ item, state, onSetStatus, onNote, large }) {
 
   return (
     <div className={cardClass}>
+      {state.image && (
+        <div className="card-image-wrap">
+          <img src={state.image} alt="" className="card-image" />
+          <button className="card-image-remove" onClick={() => onImage(item.id, null)} title="Remove image">×</button>
+        </div>
+      )}
       <div className="card-header">
         <div className="card-badges">
           <TypeBadge type={item.type} />
@@ -170,6 +186,10 @@ function ContentCard({ item, state, onSetStatus, onNote, large }) {
         <button className="btn btn-note" onClick={() => setShowNotes(!showNotes)}>
           {showNotes ? "Close" : state.notes ? "Edit Note" : "Add Note"}
         </button>
+        <label className="btn btn-image" title="Upload image">
+          {state.image ? "Change Image" : "Add Image"}
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
+        </label>
       </div>
 
       {pendingStatus && !showNotes && (
@@ -338,6 +358,13 @@ export default function App() {
     }));
   };
 
+  const handleImage = (id, dataUrl) => {
+    setItemStates((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], image: dataUrl },
+    }));
+  };
+
   const handleApproveMonth = (month) => {
     setItemStates((prev) => {
       const next = { ...prev };
@@ -445,6 +472,7 @@ export default function App() {
                     state={itemStates[item.id]}
                     onSetStatus={handleSetStatus}
                     onNote={handleNote}
+                    onImage={handleImage}
                     large={type === "Blog"}
                   />
                 ))}

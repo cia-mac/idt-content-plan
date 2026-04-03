@@ -288,6 +288,42 @@ body {
   margin-bottom: 18px;
 }
 
+/* Card image */
+.card-image-wrap {
+  position: relative;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.card-image {
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+  display: block;
+  border-radius: 10px;
+}
+
+.card-image-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0,0,0,0.7);
+  border: none;
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.card-image-remove:hover { background: #e74c3c; }
+
 .card-saved-note {
   font-size: 18px;
   color: #999;
@@ -335,6 +371,15 @@ body {
 
 .btn-note { border-color: #555; color: #999; }
 .btn-note:hover { border-color: #888; color: #ccc; }
+
+.btn-image {
+  border-color: #555;
+  color: #999;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.btn-image:hover { border-color: #888; color: #ccc; }
 
 .btn-approve-all {
   background: #27ae60;
