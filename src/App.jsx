@@ -28,13 +28,23 @@ function mergeState(items, stored) {
 }
 
 // ─── workflow config ──────────────────────────────────────────────────────────
-// Which section a card lives in, based on its status
+//
+//  PHASE 1 — PITCH
+//    Proposed → Luiz: Green Light / Hold / Skip
+//    On Hold  → Luiz: Green Light / Skip
+//    Greenlit → Ciamac develops, then sends for review
+//
+//  PHASE 2 — FINAL REVIEW
+//    In Review → Luiz: Approve / Request Changes
+//    Revise    → Ciamac fixes, then resubmits (back to In Review)
+//    Approved  → Done
+//
 const SECTION_OF = {
   "Proposed":  "proposals",
   "On Hold":   "proposals",
   "Greenlit":  "development",
+  "Revise":    "development",  // revisions go back to Ciamac, not stuck in review
   "In Review": "review",
-  "Revise":    "review",
   "Approved":  "approved",
   "Passed":    "passed",
 };
@@ -42,18 +52,18 @@ const SECTION_OF = {
 // Actions Luiz can take, per status
 const LUIZ_ACTIONS = {
   "Proposed": [
-    { status: "Greenlit", label: "Greenlit", cls: "btn-greenlit" },
-    { status: "On Hold",  label: "Hold",     cls: "btn-hold"    },
-    { status: "Passed",   label: "Pass",     cls: "btn-pass"    },
+    { status: "Greenlit", label: "Green Light", cls: "btn-greenlit" },
+    { status: "On Hold",  label: "Hold",        cls: "btn-hold"    },
+    { status: "Passed",   label: "Skip",        cls: "btn-pass"    },
   ],
   "On Hold": [
-    { status: "Greenlit", label: "Greenlit", cls: "btn-greenlit" },
-    { status: "Passed",   label: "Pass",     cls: "btn-pass"    },
+    { status: "Proposed",  label: "Unhold",      cls: "btn-pass"    },
+    { status: "Greenlit",  label: "Green Light", cls: "btn-greenlit" },
+    { status: "Passed",    label: "Skip",        cls: "btn-pass"    },
   ],
   "In Review": [
-    { status: "Approved", label: "Approve",  cls: "btn-approve" },
-    { status: "Revise",   label: "Revise",   cls: "btn-revise"  },
-    { status: "On Hold",  label: "Hold",     cls: "btn-hold"    },
+    { status: "Approved", label: "Approve",          cls: "btn-approve" },
+    { status: "Revise",   label: "Request Changes",  cls: "btn-revise"  },
   ],
   "Greenlit":  [],
   "Revise":    [],
@@ -61,16 +71,16 @@ const LUIZ_ACTIONS = {
   "Passed":    [],
 };
 
-// Colors — type drives LEFT BORDER only; status drives badge only
-const TYPE_BORDER = { Blog: "#d4a017", LinkedIn: "#0a66c2", Video: "#7d3c98", X: "#777", Project: "#b8860b" };
+// Colors — type drives LEFT BORDER only; status badge is text-only, no heavy bg
+const TYPE_BORDER = { Blog: "#d4a017", LinkedIn: "#0a66c2", Video: "#7d3c98", X: "#666", Project: "#b8860b" };
 const STATUS_COLOR = {
-  "Proposed":  { bg: "#2a2a2a", text: "#999" },
-  "Greenlit":  { bg: "#1a5c38", text: "#7ddb9b" },
-  "On Hold":   { bg: "#1a3a5c", text: "#7ab4db" },
-  "Passed":    { bg: "#222",    text: "#666"     },
-  "In Review": { bg: "#4a3800", text: "#e0b040"  },
-  "Revise":    { bg: "#4a1a10", text: "#e07060"  },
-  "Approved":  { bg: "#1a4a2a", text: "#27ae60"  },
+  "Proposed":  { bg: "transparent",           text: "#555"    },
+  "Greenlit":  { bg: "rgba(39,174,96,0.08)",  text: "#3ea864" },
+  "On Hold":   { bg: "rgba(41,128,185,0.08)", text: "#4d8fbb" },
+  "Passed":    { bg: "transparent",           text: "#333"    },
+  "In Review": { bg: "rgba(212,160,23,0.08)", text: "#b88c0a" },
+  "Revise":    { bg: "rgba(210,80,60,0.08)",  text: "#c05040" },
+  "Approved":  { bg: "rgba(39,174,96,0.08)",  text: "#27ae60" },
 };
 
 const MONTHS = ["April", "May", "June", "Ongoing"];
@@ -91,13 +101,13 @@ const LEGEND_CATS = [
 ];
 
 const LEGEND_FLOW = [
-  { status: "Proposed",  color: "#999",    desc: "Ciamac's pitch. Luiz has not responded." },
-  { status: "Greenlit",  color: "#7ddb9b", desc: "Luiz said go. Ciamac is developing." },
-  { status: "In Review", color: "#e0b040", desc: "Draft is done. Luiz reviews before publish." },
+  { status: "Proposed",  color: "#555",    desc: "Ciamac's pitch. Waiting on Luiz." },
+  { status: "On Hold",   color: "#4d8fbb", desc: "Luiz paused it. Still in the pitch queue." },
+  { status: "Greenlit",  color: "#3ea864", desc: "Luiz said go. Ciamac is building it." },
+  { status: "In Review", color: "#b88c0a", desc: "Draft ready. Luiz reviews before publish." },
+  { status: "Revise",    color: "#c05040", desc: "Changes requested. Back in development until resubmitted." },
   { status: "Approved",  color: "#27ae60", desc: "Final sign-off. Ready to publish." },
-  { status: "On Hold",   color: "#7ab4db", desc: "Pause. Needs discussion." },
-  { status: "Revise",    color: "#e07060", desc: "Changes requested. Ciamac revises, then back to review." },
-  { status: "Passed",    color: "#555",    desc: "Not this cycle. Archived." },
+  { status: "Passed",    color: "#333",    desc: "Skipped this cycle. Archived." },
 ];
 
 function formatDate(d) {
@@ -227,9 +237,10 @@ function ContentCard({ item, state, editMode, onSetStatus, onNote, onImage }) {
   };
 
   const borderColor = TYPE_BORDER[item.type] || "#444";
+  const typeClass   = `card-type-${item.type.toLowerCase()}`;
 
   return (
-    <div className="content-card" style={{ borderLeftColor: borderColor }}>
+    <div className={`content-card ${typeClass}`} style={{ borderLeftColor: borderColor }}>
       {state.image && (
         <div className="card-image-wrap">
           <img src={state.image} alt="" className="card-image" />
@@ -242,6 +253,7 @@ function ContentCard({ item, state, editMode, onSetStatus, onNote, onImage }) {
       <div className="card-top">
         <span className="card-type-label" style={{ color: borderColor }}>{item.type}</span>
         {item.category && <span className="card-category">{item.category}</span>}
+        {item.status && <span className="card-write-status">{item.status}</span>}
         <StatusBadge status={state.approval} />
       </div>
 
@@ -549,14 +561,14 @@ export default function App() {
 
       <Section
         title="In Development"
-        subtitle="Greenlit by Luiz. Ciamac is working on it."
+        subtitle="Greenlit items Ciamac is building. Revise items being reworked before resubmission."
         cards={inSection("development")}
         {...sharedProps}
       />
 
       <Section
         title="In Review"
-        subtitle="Draft is ready. Approve to publish or request changes."
+        subtitle="Draft is ready. Your call: Approve to publish, or Request Changes."
         cards={inSection("review")}
         {...sharedProps}
       />
