@@ -2,128 +2,204 @@ import { useState, useEffect, useMemo } from "react";
 import contentItems from "./data/contentItems";
 import "./App.css";
 
-const STORAGE_KEY = "idt-content-plan-state";
-const SUGGESTIONS_KEY = "idt-content-plan-suggestions";
+const STORAGE_KEY  = "the-brief-state";
+const SUGGEST_KEY  = "the-brief-suggestions";
+const EDIT_PIN     = "6868";
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-}
-function saveState(state) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-function loadSuggestions() {
-  try {
-    const raw = localStorage.getItem(SUGGESTIONS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-function saveSuggestions(s) {
-  localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(s));
-}
+// ─── persistence ─────────────────────────────────────────────────────────────
+function loadState()       { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } }
+function saveState(s)      { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
+function loadSuggestions() { try { return JSON.parse(localStorage.getItem(SUGGEST_KEY)) || []; } catch { return []; } }
+function saveSuggestions(s){ localStorage.setItem(SUGGEST_KEY, JSON.stringify(s)); }
 
 function mergeState(items, stored) {
-  const merged = {};
-  items.forEach((item) => {
-    if (stored[item.id]) {
-      const s = { ...stored[item.id] };
-      if (s.approval === "Objected" || s.approval === "Flagged") s.approval = "Rejected";
-      merged[item.id] = s;
-    } else {
-      merged[item.id] = { approval: "Pending", notes: "", notesTimestamp: null, image: null };
-    }
+  const m = {};
+  items.forEach(item => {
+    const s = stored[item.id] || {};
+    // migrate legacy values
+    const a = s.approval;
+    let approval = a;
+    if (!approval || approval === "Pending")  approval = "Proposed";
+    if (approval === "Objected" || approval === "Flagged" || approval === "Rejected") approval = "Passed";
+    if (approval === "Approved (Phase 1)" || approval === "Greenlit") approval = "Greenlit";
+    m[item.id] = { approval, notes: s.notes || "", notesTimestamp: s.notesTimestamp || null, image: s.image || null };
   });
-  return merged;
+  return m;
 }
 
-const NOTE_REQUIRED = ["Rejected", "Changes Requested"];
-
-const STATUS_CONFIG = {
-  Pending:             { color: "#555",    textColor: "#fff" },
-  Approved:            { color: "#27ae60", textColor: "#fff" },
-  "On Hold":           { color: "#2980b9", textColor: "#fff" },
-  Rejected:            { color: "#e74c3c", textColor: "#fff" },
-  "Changes Requested": { color: "#f0c040", textColor: "#111" },
+// ─── workflow config ──────────────────────────────────────────────────────────
+// Which section a card lives in, based on its status
+const SECTION_OF = {
+  "Proposed":  "proposals",
+  "On Hold":   "proposals",
+  "Greenlit":  "development",
+  "In Review": "review",
+  "Revise":    "review",
+  "Approved":  "approved",
+  "Passed":    "passed",
 };
 
-const ACTIONS = [
-  { status: "Approved",           label: "Approve", btnClass: "btn-approve" },
-  { status: "On Hold",            label: "Hold",    btnClass: "btn-hold"    },
-  { status: "Rejected",           label: "Reject",  btnClass: "btn-reject"  },
-  { status: "Changes Requested",  label: "Revise",  btnClass: "btn-revise"  },
-];
-
-const TYPE_COLORS = {
-  Blog:     "#e07020",
-  LinkedIn: "#0a66c2",
-  Video:    "#9b59b6",
-  X:        "#e0e0e0",
-  Project:  "#d4a017",
+// Actions Luiz can take, per status
+const LUIZ_ACTIONS = {
+  "Proposed": [
+    { status: "Greenlit", label: "Greenlit", cls: "btn-greenlit" },
+    { status: "On Hold",  label: "Hold",     cls: "btn-hold"    },
+    { status: "Passed",   label: "Pass",     cls: "btn-pass"    },
+  ],
+  "On Hold": [
+    { status: "Greenlit", label: "Greenlit", cls: "btn-greenlit" },
+    { status: "Passed",   label: "Pass",     cls: "btn-pass"    },
+  ],
+  "In Review": [
+    { status: "Approved", label: "Approve",  cls: "btn-approve" },
+    { status: "Revise",   label: "Revise",   cls: "btn-revise"  },
+    { status: "On Hold",  label: "Hold",     cls: "btn-hold"    },
+  ],
+  "Greenlit":  [],
+  "Revise":    [],
+  "Approved":  [],
+  "Passed":    [],
 };
 
-const CATEGORY_COLORS = {
-  Educational: "#2471a3",
-  Application: "#7d3c98",
-  Product:     "#b7460e",
-  Culture:     "#1e8449",
-  TBD:         "#555",
+// Colors — type drives LEFT BORDER only; status drives badge only
+const TYPE_BORDER = { Blog: "#d4a017", LinkedIn: "#0a66c2", Video: "#7d3c98", X: "#777", Project: "#b8860b" };
+const STATUS_COLOR = {
+  "Proposed":  { bg: "#2a2a2a", text: "#999" },
+  "Greenlit":  { bg: "#1a5c38", text: "#7ddb9b" },
+  "On Hold":   { bg: "#1a3a5c", text: "#7ab4db" },
+  "Passed":    { bg: "#222",    text: "#666"     },
+  "In Review": { bg: "#4a3800", text: "#e0b040"  },
+  "Revise":    { bg: "#4a1a10", text: "#e07060"  },
+  "Approved":  { bg: "#1a4a2a", text: "#27ae60"  },
 };
 
 const MONTHS = ["April", "May", "June", "Ongoing"];
-// Order types within each month section
-const TYPE_ORDER = ["Blog", "LinkedIn", "Video", "X", "Project"];
 
-function formatDate(dateStr) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const LEGEND_TYPES = [
+  { type: "Blog",      color: "#d4a017", desc: "Long-form article. Interactive explainer. SEO. Goes on idtcameras.com." },
+  { type: "LinkedIn",  color: "#0a66c2", desc: "Short post. 2x/week, Tue + Thu, 10am PT. Educational, Application, Product, or Culture." },
+  { type: "Video",     color: "#7d3c98", desc: "Produced video. YouTube or LinkedIn native." },
+  { type: "X",         color: "#777",    desc: "Short-form post for X. Repurposed from LinkedIn or standalone." },
+  { type: "Project",   color: "#b8860b", desc: "Ongoing deliverable. Configurator, website, software. Not content — infrastructure." },
+];
+
+const LEGEND_CATS = [
+  { cat: "Educational", desc: "Teaches something. Frame rate, interfaces, PIV. No product pitch." },
+  { cat: "Application", desc: "Named client story. Caltech, Mercedes, RaceTech, Artemis. These are the differentiators." },
+  { cat: "Product",     desc: "Specs, features, new release. Feature-forward, numbers over adjectives." },
+  { cat: "Culture",     desc: "Behind the scenes. Pasadena facility, team, engineering process." },
+];
+
+const LEGEND_FLOW = [
+  { status: "Proposed",  color: "#999",    desc: "Ciamac's pitch. Luiz has not responded." },
+  { status: "Greenlit",  color: "#7ddb9b", desc: "Luiz said go. Ciamac is developing." },
+  { status: "In Review", color: "#e0b040", desc: "Draft is done. Luiz reviews before publish." },
+  { status: "Approved",  color: "#27ae60", desc: "Final sign-off. Ready to publish." },
+  { status: "On Hold",   color: "#7ab4db", desc: "Pause. Needs discussion." },
+  { status: "Revise",    color: "#e07060", desc: "Changes requested. Ciamac revises, then back to review." },
+  { status: "Passed",    color: "#555",    desc: "Not this cycle. Archived." },
+];
+
+function formatDate(d) {
+  if (!d) return "";
+  return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function StatusBadge({ approval }) {
-  const cfg = STATUS_CONFIG[approval] || STATUS_CONFIG.Pending;
+// ─── Legend ───────────────────────────────────────────────────────────────────
+function Legend() {
+  const [open, setOpen] = useState(false);
   return (
-    <span className="status-badge" style={{ background: cfg.color, color: cfg.textColor }}>
-      {approval}
-    </span>
+    <div className="legend-wrap">
+      <button className="legend-toggle" onClick={() => setOpen(o => !o)}>
+        {open ? "Hide Guide" : "How This Works"}
+      </button>
+      {open && (
+        <div className="legend-body">
+          <div className="legend-col">
+            <h4>Workflow</h4>
+            {LEGEND_FLOW.map(({ status, color, desc }) => (
+              <div key={status} className="legend-row">
+                <span className="legend-dot" style={{ background: color }} />
+                <span className="legend-label">{status}</span>
+                <span className="legend-desc">{desc}</span>
+              </div>
+            ))}
+          </div>
+          <div className="legend-col">
+            <h4>Content Types</h4>
+            {LEGEND_TYPES.map(({ type, color, desc }) => (
+              <div key={type} className="legend-row">
+                <span className="legend-stripe" style={{ background: color }} />
+                <span className="legend-label">{type}</span>
+                <span className="legend-desc">{desc}</span>
+              </div>
+            ))}
+          </div>
+          <div className="legend-col">
+            <h4>Categories</h4>
+            {LEGEND_CATS.map(({ cat, desc }) => (
+              <div key={cat} className="legend-row">
+                <span className="legend-label">{cat}</span>
+                <span className="legend-desc">{desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function TypeBadge({ type }) {
+// ─── PIN modal ────────────────────────────────────────────────────────────────
+function PinModal({ onSuccess, onClose }) {
+  const [val, setVal] = useState("");
+  const [err, setErr] = useState(false);
+  const submit = () => {
+    if (val === EDIT_PIN) { onSuccess(); }
+    else { setErr(true); setVal(""); }
+  };
   return (
-    <span className="type-badge" style={{ background: TYPE_COLORS[type] || "#666", color: type === "X" ? "#111" : "#fff" }}>
-      {type}
-    </span>
+    <div className="pin-overlay" onClick={onClose}>
+      <div className="pin-modal" onClick={e => e.stopPropagation()}>
+        <h3>Edit Mode</h3>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          value={val}
+          onChange={e => { setVal(e.target.value); setErr(false); }}
+          onKeyDown={e => e.key === "Enter" && submit()}
+          placeholder="PIN"
+          autoFocus
+          className={err ? "pin-input pin-error" : "pin-input"}
+        />
+        {err && <p className="pin-err-msg">Incorrect PIN.</p>}
+        <div className="pin-actions">
+          <button className="btn btn-approve" onClick={submit}>Unlock</button>
+          <button className="btn" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function CategoryBadge({ category }) {
-  if (!category) return null;
-  return (
-    <span className="category-label" style={{ background: CATEGORY_COLORS[category] || "#555" }}>
-      {category}
-    </span>
-  );
+// ─── Status badge ─────────────────────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const cfg = STATUS_COLOR[status] || STATUS_COLOR["Proposed"];
+  return <span className="status-badge" style={{ background: cfg.bg, color: cfg.text }}>{status}</span>;
 }
 
-function ContentCard({ item, state, onSetStatus, onNote, onImage, large }) {
+// ─── Content Card ─────────────────────────────────────────────────────────────
+function ContentCard({ item, state, editMode, onSetStatus, onNote, onImage }) {
   const [showNotes, setShowNotes] = useState(false);
   const [noteText, setNoteText] = useState(state.notes || "");
   const [pendingStatus, setPendingStatus] = useState(null);
-  const fileInputRef = useState(null);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => onImage(item.id, ev.target.result);
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
+  const luizActions = LUIZ_ACTIONS[state.approval] || [];
+  const noteRequired = ["Revise", "On Hold", "Passed"];
 
   const handleAction = (status) => {
-    if (NOTE_REQUIRED.includes(status) && !state.notes && !noteText.trim()) {
+    if (noteRequired.includes(status) && !state.notes && !noteText.trim()) {
       setPendingStatus(status);
       setShowNotes(true);
       return;
@@ -141,56 +217,80 @@ function ContentCard({ item, state, onSetStatus, onNote, onImage, large }) {
     setShowNotes(false);
   };
 
-  const statusSlug = state.approval.toLowerCase().replace(/\s+/g, "-");
-  const cardClass = [
-    "content-card",
-    large ? "content-card-large" : "",
-    state.approval !== "Pending" ? `card-${statusSlug}` : "",
-  ].join(" ").trim();
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => onImage(item.id, ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const borderColor = TYPE_BORDER[item.type] || "#444";
 
   return (
-    <div className={cardClass}>
+    <div className="content-card" style={{ borderLeftColor: borderColor }}>
       {state.image && (
         <div className="card-image-wrap">
           <img src={state.image} alt="" className="card-image" />
-          <button className="card-image-remove" onClick={() => onImage(item.id, null)} title="Remove image">×</button>
+          {editMode && (
+            <button className="card-image-remove" onClick={() => onImage(item.id, null)}>×</button>
+          )}
         </div>
       )}
-      <div className="card-header">
-        <div className="card-badges">
-          <TypeBadge type={item.type} />
-          <CategoryBadge category={item.category} />
-        </div>
-        <StatusBadge approval={state.approval} />
+
+      <div className="card-top">
+        <span className="card-type-label" style={{ color: borderColor }}>{item.type}</span>
+        {item.category && <span className="card-category">{item.category}</span>}
+        <StatusBadge status={state.approval} />
       </div>
 
       <h3 className="card-title">{item.title}</h3>
       {item.targetDate && <p className="card-date">{formatDate(item.targetDate)}</p>}
       <p className="card-desc">{item.description}</p>
-      {item.note && <p className="card-note-preset">Note: {item.note}</p>}
-      {item.status && <p className="card-write-status">Draft status: {item.status}</p>}
+      {item.note && <p className="card-note-preset">{item.note}</p>}
+
       {state.notes && !showNotes && (
         <p className="card-saved-note">"{state.notes}"</p>
       )}
 
-      <div className="card-actions">
-        {ACTIONS.map(({ status, label, btnClass }) => (
-          <button
-            key={status}
-            className={`btn ${btnClass} ${state.approval === status ? "active" : ""}`}
-            onClick={() => handleAction(status)}
-          >
-            {label}
+      {/* Luiz's action buttons */}
+      {luizActions.length > 0 && (
+        <div className="card-actions">
+          {luizActions.map(({ status, label, cls }) => (
+            <button
+              key={status}
+              className={`btn ${cls} ${state.approval === status ? "active" : ""}`}
+              onClick={() => handleAction(status)}
+            >
+              {label}
+            </button>
+          ))}
+          <button className="btn btn-note" onClick={() => setShowNotes(!showNotes)}>
+            {showNotes ? "Close" : state.notes ? "Edit Note" : "Note"}
           </button>
-        ))}
-        <button className="btn btn-note" onClick={() => setShowNotes(!showNotes)}>
-          {showNotes ? "Close" : state.notes ? "Edit Note" : "Add Note"}
-        </button>
-        <label className="btn btn-image" title="Upload image">
-          {state.image ? "Change Image" : "Add Image"}
-          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
-        </label>
-      </div>
+        </div>
+      )}
+
+      {/* Edit-mode controls — Ciamac only */}
+      {editMode && (
+        <div className="card-edit-controls">
+          {state.approval === "Greenlit" && (
+            <button className="btn btn-send-review" onClick={() => onSetStatus(item.id, "In Review")}>
+              Send for Approval →
+            </button>
+          )}
+          {state.approval === "Revise" && (
+            <button className="btn btn-send-review" onClick={() => onSetStatus(item.id, "In Review")}>
+              Back to Review →
+            </button>
+          )}
+          <label className="btn btn-image">
+            {state.image ? "Change Image" : "Add Image"}
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
+          </label>
+        </div>
+      )}
 
       {pendingStatus && !showNotes && (
         <p className="note-required">A note is required for {pendingStatus}.</p>
@@ -198,21 +298,13 @@ function ContentCard({ item, state, onSetStatus, onNote, onImage, large }) {
 
       {showNotes && (
         <div className="notes-panel">
-          {pendingStatus && <p className="note-required">Add a note explaining why, then save.</p>}
-          <textarea
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Add your note here..."
-            rows={3}
-          />
+          {pendingStatus && <p className="note-required">Add a note, then save.</p>}
+          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Your note..." rows={3} />
           <div className="notes-footer">
             <button className="btn btn-save-note" onClick={handleSaveNote}>Save Note</button>
             {state.notesTimestamp && (
               <span className="note-timestamp">
-                Last saved:{" "}
-                {new Date(state.notesTimestamp).toLocaleString("en-US", {
-                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-                })}
+                Saved {new Date(state.notesTimestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
             )}
           </div>
@@ -222,274 +314,277 @@ function ContentCard({ item, state, onSetStatus, onNote, onImage, large }) {
   );
 }
 
+// ─── Summary bar ─────────────────────────────────────────────────────────────
 function SummaryBar({ itemStates }) {
-  const counts = useMemo(() => {
+  const c = useMemo(() => {
     const vals = Object.values(itemStates);
     return {
-      total:    vals.length,
-      approved: vals.filter((s) => s.approval === "Approved").length,
-      pending:  vals.filter((s) => s.approval === "Pending").length,
-      onhold:   vals.filter((s) => s.approval === "On Hold").length,
-      rejected: vals.filter((s) => s.approval === "Rejected").length,
-      changes:  vals.filter((s) => s.approval === "Changes Requested").length,
+      total:       vals.length,
+      proposed:    vals.filter(s => s.approval === "Proposed").length,
+      greenlit:    vals.filter(s => s.approval === "Greenlit").length,
+      inReview:    vals.filter(s => ["In Review","Revise"].includes(s.approval)).length,
+      approved:    vals.filter(s => s.approval === "Approved").length,
+      onHold:      vals.filter(s => s.approval === "On Hold").length,
     };
   }, [itemStates]);
 
+  const items = [
+    { label: "Total",       val: c.total,    cls: "" },
+    { label: "Proposed",    val: c.proposed, cls: "sc-proposed" },
+    { label: "Greenlit",    val: c.greenlit, cls: "sc-greenlit" },
+    { label: "In Review",   val: c.inReview, cls: "sc-review"   },
+    { label: "Approved",    val: c.approved, cls: "sc-approved"  },
+    { label: "On Hold",     val: c.onHold,   cls: "sc-hold"      },
+  ];
+
   return (
     <div className="summary-bar">
-      <div className="summary-item">
-        <span className="summary-count">{counts.total}</span>
-        <span className="summary-label">Total</span>
-      </div>
-      <div className="summary-item summary-approved">
-        <span className="summary-count">{counts.approved}</span>
-        <span className="summary-label">Approved</span>
-      </div>
-      <div className="summary-item summary-pending">
-        <span className="summary-count">{counts.pending}</span>
-        <span className="summary-label">Pending</span>
-      </div>
-      <div className="summary-item summary-onhold">
-        <span className="summary-count">{counts.onhold}</span>
-        <span className="summary-label">On Hold</span>
-      </div>
-      <div className="summary-item summary-rejected">
-        <span className="summary-count">{counts.rejected}</span>
-        <span className="summary-label">Rejected</span>
-      </div>
-      <div className="summary-item summary-changes">
-        <span className="summary-count">{counts.changes}</span>
-        <span className="summary-label">Revise</span>
-      </div>
+      {items.map(({ label, val, cls }) => (
+        <div key={label} className={`summary-item ${cls}`}>
+          <span className="summary-count">{val}</span>
+          <span className="summary-label">{label}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
+// ─── Section ─────────────────────────────────────────────────────────────────
+function Section({ title, subtitle, cards, itemStates, editMode, onSetStatus, onNote, onImage, groupByMonth }) {
+  if (cards.length === 0) return null;
+
+  const renderCard = (item) => (
+    <ContentCard
+      key={item.id}
+      item={item}
+      state={itemStates[item.id]}
+      editMode={editMode}
+      onSetStatus={onSetStatus}
+      onNote={onNote}
+      onImage={onImage}
+    />
+  );
+
+  return (
+    <section className="brief-section">
+      <div className="section-header">
+        <div>
+          <h2 className="section-title">{title}</h2>
+          {subtitle && <p className="section-sub">{subtitle}</p>}
+        </div>
+        <span className="section-count">{cards.length}</span>
+      </div>
+
+      {groupByMonth ? (
+        MONTHS.filter(m => cards.some(c => c.month === m)).map(month => (
+          <div key={month} className="month-group">
+            <h3 className="month-label">{month === "Ongoing" ? "Ongoing" : `${month} 2026`}</h3>
+            <div className="cards-grid">
+              {cards.filter(c => c.month === month).map(renderCard)}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="cards-grid">
+          {cards.map(renderCard)}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Suggestions ─────────────────────────────────────────────────────────────
 function SuggestionsSection({ suggestions, onAdd, onDelete }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
 
-  const handleSubmit = () => {
+  const submit = () => {
     if (!title.trim()) return;
     onAdd({ title: title.trim(), description: desc.trim() });
-    setTitle("");
-    setDesc("");
-    setOpen(false);
+    setTitle(""); setDesc(""); setOpen(false);
   };
 
   return (
     <section className="suggestions-section">
-      <div className="suggestions-header">
+      <div className="section-header">
         <div>
-          <h2 className="suggestions-title">Suggestions</h2>
-          <p className="suggestions-sub">Ideas Luiz wants to see covered</p>
+          <h2 className="section-title">Suggestions</h2>
+          <p className="section-sub">Content ideas from Luiz</p>
         </div>
-        <button className="btn btn-suggest" onClick={() => setOpen(!open)}>
+        <button className="btn btn-suggest" onClick={() => setOpen(o => !o)}>
           {open ? "Cancel" : "+ Suggest an Idea"}
         </button>
       </div>
 
       {open && (
         <div className="suggest-form">
-          <input
-            type="text"
-            placeholder="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="suggest-input"
-            autoFocus
-          />
-          <textarea
-            placeholder="Short description (optional)"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            className="suggest-textarea"
-            rows={3}
-          />
-          <button className="btn btn-save-note" onClick={handleSubmit} disabled={!title.trim()}>
-            Submit Idea
-          </button>
+          <input type="text" placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} className="suggest-input" autoFocus />
+          <textarea placeholder="Short description (optional)" value={desc} onChange={e => setDesc(e.target.value)} className="suggest-textarea" rows={3} />
+          <button className="btn btn-save-note" onClick={submit} disabled={!title.trim()}>Submit Idea</button>
         </div>
       )}
 
       {suggestions.length > 0 ? (
         <div className="suggestions-list">
-          {suggestions.map((s) => (
+          {suggestions.map(s => (
             <div key={s.id} className="suggestion-card">
-              <div className="suggestion-body">
+              <div>
                 <p className="suggestion-title">{s.title}</p>
                 {s.description && <p className="suggestion-desc">{s.description}</p>}
-                <p className="suggestion-ts">
-                  {new Date(s.createdAt).toLocaleString("en-US", {
-                    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-                  })}
-                </p>
+                <p className="suggestion-ts">{new Date(s.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
               </div>
-              <button className="btn-delete" onClick={() => onDelete(s.id)} title="Remove">×</button>
+              <button className="btn-delete" onClick={() => onDelete(s.id)}>×</button>
             </div>
           ))}
         </div>
-      ) : (
-        !open && <p className="suggestions-empty">No suggestions yet.</p>
-      )}
+      ) : !open && <p className="suggestions-empty">No suggestions yet.</p>}
     </section>
   );
 }
 
+// ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [itemStates, setItemStates] = useState(() => mergeState(contentItems, loadState()));
+  const [itemStates,  setItemStates]  = useState(() => mergeState(contentItems, loadState()));
   const [suggestions, setSuggestions] = useState(() => loadSuggestions());
-  const [filterType, setFilterType] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [editMode,    setEditMode]    = useState(false);
+  const [showPin,     setShowPin]     = useState(false);
   const [filterMonth, setFilterMonth] = useState("All");
+  const [filterType,  setFilterType]  = useState("All");
 
-  useEffect(() => { saveState(itemStates); }, [itemStates]);
-  useEffect(() => { saveSuggestions(suggestions); }, [suggestions]);
+  useEffect(() => saveState(itemStates),     [itemStates]);
+  useEffect(() => saveSuggestions(suggestions), [suggestions]);
 
-  const handleSetStatus = (id, status) => {
-    setItemStates((prev) => ({ ...prev, [id]: { ...prev[id], approval: status } }));
-  };
+  const onSetStatus = (id, status) =>
+    setItemStates(prev => ({ ...prev, [id]: { ...prev[id], approval: status } }));
 
-  const handleNote = (id, text) => {
-    setItemStates((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], notes: text, notesTimestamp: new Date().toISOString() },
-    }));
-  };
+  const onNote = (id, text) =>
+    setItemStates(prev => ({ ...prev, [id]: { ...prev[id], notes: text, notesTimestamp: new Date().toISOString() } }));
 
-  const handleImage = (id, dataUrl) => {
-    setItemStates((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], image: dataUrl },
-    }));
-  };
+  const onImage = (id, dataUrl) =>
+    setItemStates(prev => ({ ...prev, [id]: { ...prev[id], image: dataUrl } }));
 
-  const handleApproveMonth = (month) => {
-    setItemStates((prev) => {
-      const next = { ...prev };
-      contentItems.filter((item) => item.month === month).forEach((item) => {
-        if (next[item.id].approval === "Pending") {
-          next[item.id] = { ...next[item.id], approval: "Approved" };
-        }
-      });
-      return next;
-    });
-  };
+  const onAddSuggestion = ({ title, description }) =>
+    setSuggestions(prev => [...prev, { id: Date.now().toString(), title, description, createdAt: new Date().toISOString() }]);
+
+  const onDeleteSuggestion = (id) =>
+    setSuggestions(prev => prev.filter(s => s.id !== id));
 
   const handleReset = () => {
-    if (window.confirm("Reset all statuses and notes? This cannot be undone.")) {
+    if (window.confirm("Reset all statuses, notes, and images? This cannot be undone.")) {
       const fresh = {};
-      contentItems.forEach((item) => {
-        fresh[item.id] = { approval: "Pending", notes: "", notesTimestamp: null };
+      contentItems.forEach(item => {
+        fresh[item.id] = { approval: "Proposed", notes: "", notesTimestamp: null, image: null };
       });
       setItemStates(fresh);
     }
   };
 
-  const handleAddSuggestion = ({ title, description }) => {
-    setSuggestions((prev) => [
-      ...prev,
-      { id: Date.now().toString(), title, description, createdAt: new Date().toISOString() },
-    ]);
-  };
-
-  const handleDeleteSuggestion = (id) => {
-    setSuggestions((prev) => prev.filter((s) => s.id !== id));
-  };
-
-  const types = ["All", ...new Set(contentItems.map((i) => i.type))];
-  const statuses = ["All", "Pending", "Approved", "On Hold", "Rejected", "Changes Requested"];
-
-  const filtered = contentItems.filter((item) => {
-    if (filterType !== "All" && item.type !== filterType) return false;
+  // Filter and section assignment
+  const filtered = contentItems.filter(item => {
     if (filterMonth !== "All" && item.month !== filterMonth) return false;
-    if (filterStatus !== "All" && itemStates[item.id]?.approval !== filterStatus) return false;
+    if (filterType  !== "All" && item.type  !== filterType)  return false;
     return true;
   });
 
-  const groupedByMonth = MONTHS.map((month) => ({
-    month,
-    items: filtered.filter((item) => item.month === month),
-  })).filter((g) => g.items.length > 0);
+  const inSection = (section) => filtered.filter(item => SECTION_OF[itemStates[item.id]?.approval] === section);
+
+  const types = ["All", ...new Set(contentItems.map(i => i.type))];
+
+  const sharedProps = { itemStates, editMode, onSetStatus, onNote, onImage };
 
   return (
     <div className="app">
+      {showPin && (
+        <PinModal
+          onSuccess={() => { setEditMode(true); setShowPin(false); }}
+          onClose={() => setShowPin(false)}
+        />
+      )}
+
       <header className="app-header">
-        <div className="header-content">
-          <h1>IDT Content Plan</h1>
-          <p className="header-sub">Review and approve upcoming content</p>
+        <div>
+          <h1 className="app-title">The Brief</h1>
+          <p className="app-sub">IDT Content Plan — April to June 2026</p>
         </div>
-        <button className="btn btn-reset" onClick={handleReset}>Reset All</button>
+        <div className="header-right">
+          {editMode ? (
+            <>
+              <span className="edit-mode-badge">Edit Mode</span>
+              <button className="btn btn-lock" onClick={() => setEditMode(false)}>Lock</button>
+              <button className="btn btn-reset" onClick={handleReset}>Reset All</button>
+            </>
+          ) : (
+            <button className="btn btn-lock" onClick={() => setShowPin(true)}>Edit</button>
+          )}
+        </div>
       </header>
 
+      <Legend />
       <SummaryBar itemStates={itemStates} />
 
       <div className="filters">
         <div className="filter-group">
-          <label>Type</label>
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-            {types.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <div className="filter-group">
-          <label>Status</label>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="filter-group">
           <label>Month</label>
-          <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
-            <option value="All">All</option>
-            {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
+          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+            <option value="All">All months</option>
+            {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div className="filter-group">
+          <label>Type</label>
+          <select value={filterType} onChange={e => setFilterType(e.target.value)}>
+            {types.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
       </div>
 
-      {groupedByMonth.map(({ month, items }) => (
-        <section key={month} className="month-section">
-          <div className="month-header">
-            <h2>{month === "Ongoing" ? "Ongoing" : `${month} 2026`}</h2>
-            {month !== "Ongoing" && (
-              <button className="btn btn-approve-all" onClick={() => handleApproveMonth(month)}>
-                Approve All {month}
-              </button>
-            )}
-          </div>
+      <Section
+        title="Proposals"
+        subtitle="Review each item. Greenlit means go build it."
+        cards={inSection("proposals")}
+        groupByMonth
+        {...sharedProps}
+      />
 
-          {TYPE_ORDER.filter((type) => items.some((i) => i.type === type)).map((type) => (
-            <div key={type} className="type-group">
-              <h3 className="type-group-title">
-                <span className="type-dot" style={{ background: TYPE_COLORS[type] || "#666" }} />
-                {type}
-              </h3>
-              <div className={type === "Blog" ? "cards-grid cards-grid-blog" : "cards-grid"}>
-                {items.filter((i) => i.type === type).map((item) => (
-                  <ContentCard
-                    key={item.id}
-                    item={item}
-                    state={itemStates[item.id]}
-                    onSetStatus={handleSetStatus}
-                    onNote={handleNote}
-                    onImage={handleImage}
-                    large={type === "Blog"}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </section>
-      ))}
+      <Section
+        title="In Development"
+        subtitle="Greenlit by Luiz. Ciamac is working on it."
+        cards={inSection("development")}
+        {...sharedProps}
+      />
+
+      <Section
+        title="In Review"
+        subtitle="Draft is ready. Approve to publish or request changes."
+        cards={inSection("review")}
+        {...sharedProps}
+      />
+
+      <Section
+        title="Approved"
+        subtitle="Final sign-off given. Ready to publish."
+        cards={inSection("approved")}
+        {...sharedProps}
+      />
+
+      {inSection("passed").length > 0 && (
+        <Section
+          title="Passed"
+          subtitle="Not this cycle."
+          cards={inSection("passed")}
+          {...sharedProps}
+        />
+      )}
 
       <SuggestionsSection
         suggestions={suggestions}
-        onAdd={handleAddSuggestion}
-        onDelete={handleDeleteSuggestion}
+        onAdd={onAddSuggestion}
+        onDelete={onDeleteSuggestion}
       />
 
       <footer className="app-footer">
-        <p>IDT Content Plan Review Tool. Data stored locally in your browser.</p>
+        <p>The Brief — IDT Content Review</p>
       </footer>
     </div>
   );
