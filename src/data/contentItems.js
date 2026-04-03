@@ -292,6 +292,28 @@ const contentItems = [
     description: "Interactive explainer with multi-camera stereo/PIV setup diagram. Calibration and synchronization."
   },
 
+  // ===== VIDEO =====
+  {
+    id: "video-1",
+    title: "IDT Company Profile Video",
+    type: "Video",
+    category: "Culture",
+    month: "Ongoing",
+    targetDate: null,
+    description: "Partners Cut v1.4 script locked. ~2:10 runtime. TTS versions generated. Needs final edit and pickup shots."
+  },
+
+  // ===== X POSTS =====
+  {
+    id: "x-placeholder",
+    title: "X Content — Ideas TBD",
+    type: "X",
+    category: "TBD",
+    month: "Ongoing",
+    targetDate: null,
+    description: "X post ideas to be added."
+  },
+
   // ===== ONGOING PROJECTS =====
   {
     id: "ongoing-1",
@@ -301,15 +323,6 @@ const contentItems = [
     month: "Ongoing",
     targetDate: null,
     description: "37-model interactive configurator. Master Engine v1.0 built. Waiting on FPS spec sheet from Luiz."
-  },
-  {
-    id: "ongoing-2",
-    title: "IDT Company Profile Video",
-    type: "Video",
-    category: "Culture",
-    month: "Ongoing",
-    targetDate: null,
-    description: "Partners Cut v1.4 script locked. ~2:10 runtime. TTS versions generated. Needs final edit and pickup shots."
   },
   {
     id: "ongoing-3",

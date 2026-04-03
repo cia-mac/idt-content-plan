@@ -9,26 +9,19 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 }
-
 function saveState(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
-
 function loadSuggestions() {
   try {
     const raw = localStorage.getItem(SUGGESTIONS_KEY);
     return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
-
-function saveSuggestions(suggestions) {
-  localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(suggestions));
+function saveSuggestions(s) {
+  localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(s));
 }
 
 function mergeState(items, stored) {
@@ -36,7 +29,7 @@ function mergeState(items, stored) {
   items.forEach((item) => {
     if (stored[item.id]) {
       const s = { ...stored[item.id] };
-      if (s.approval === "Objected") s.approval = "Flagged";
+      if (s.approval === "Objected" || s.approval === "Flagged") s.approval = "Rejected";
       merged[item.id] = s;
     } else {
       merged[item.id] = { approval: "Pending", notes: "", notesTimestamp: null };
@@ -45,15 +38,42 @@ function mergeState(items, stored) {
   return merged;
 }
 
+const NOTE_REQUIRED = ["Rejected", "Changes Requested"];
+
+const STATUS_CONFIG = {
+  Pending:             { color: "#555",    textColor: "#fff" },
+  Approved:            { color: "#27ae60", textColor: "#fff" },
+  "On Hold":           { color: "#2980b9", textColor: "#fff" },
+  Rejected:            { color: "#e74c3c", textColor: "#fff" },
+  "Changes Requested": { color: "#f0c040", textColor: "#111" },
+};
+
+const ACTIONS = [
+  { status: "Approved",           label: "Approve", btnClass: "btn-approve" },
+  { status: "On Hold",            label: "Hold",    btnClass: "btn-hold"    },
+  { status: "Rejected",           label: "Reject",  btnClass: "btn-reject"  },
+  { status: "Changes Requested",  label: "Revise",  btnClass: "btn-revise"  },
+];
+
 const TYPE_COLORS = {
-  Blog: "#e07020",
+  Blog:     "#e07020",
   LinkedIn: "#0a66c2",
-  Video: "#9b59b6",
-  Tutorial: "#27ae60",
-  Project: "#d4a017",
+  Video:    "#9b59b6",
+  X:        "#e0e0e0",
+  Project:  "#d4a017",
+};
+
+const CATEGORY_COLORS = {
+  Educational: "#2471a3",
+  Application: "#7d3c98",
+  Product:     "#b7460e",
+  Culture:     "#1e8449",
+  TBD:         "#555",
 };
 
 const MONTHS = ["April", "May", "June", "Ongoing"];
+// Order types within each month section
+const TYPE_ORDER = ["Blog", "LinkedIn", "Video", "X", "Project"];
 
 function formatDate(dateStr) {
   if (!dateStr) return "";
@@ -62,13 +82,9 @@ function formatDate(dateStr) {
 }
 
 function StatusBadge({ approval }) {
-  const colors = {
-    Pending: "#666",
-    Approved: "#27ae60",
-    Flagged: "#e67e22",
-  };
+  const cfg = STATUS_CONFIG[approval] || STATUS_CONFIG.Pending;
   return (
-    <span className="status-badge" style={{ background: colors[approval] }}>
+    <span className="status-badge" style={{ background: cfg.color, color: cfg.textColor }}>
       {approval}
     </span>
   );
@@ -76,99 +92,93 @@ function StatusBadge({ approval }) {
 
 function TypeBadge({ type }) {
   return (
-    <span
-      className="type-badge"
-      style={{ background: TYPE_COLORS[type] || "#666" }}
-    >
+    <span className="type-badge" style={{ background: TYPE_COLORS[type] || "#666", color: type === "X" ? "#111" : "#fff" }}>
       {type}
     </span>
   );
 }
 
-function ContentCard({ item, state, onApprove, onFlag, onNote }) {
+function CategoryBadge({ category }) {
+  if (!category) return null;
+  return (
+    <span className="category-label" style={{ background: CATEGORY_COLORS[category] || "#555" }}>
+      {category}
+    </span>
+  );
+}
+
+function ContentCard({ item, state, onSetStatus, onNote, large }) {
   const [showNotes, setShowNotes] = useState(false);
   const [noteText, setNoteText] = useState(state.notes || "");
-  const [pendingFlag, setPendingFlag] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState(null);
 
-  const handleApprove = () => {
-    setPendingFlag(false);
-    onApprove(item.id);
-  };
-
-  const handleFlag = () => {
-    if (!state.notes && !noteText.trim()) {
-      setPendingFlag(true);
+  const handleAction = (status) => {
+    if (NOTE_REQUIRED.includes(status) && !state.notes && !noteText.trim()) {
+      setPendingStatus(status);
       setShowNotes(true);
       return;
     }
-    setPendingFlag(false);
-    onFlag(item.id);
+    setPendingStatus(null);
+    onSetStatus(item.id, status);
   };
 
   const handleSaveNote = () => {
     onNote(item.id, noteText);
-    if (pendingFlag && noteText.trim()) {
-      onFlag(item.id);
-      setPendingFlag(false);
+    if (pendingStatus && noteText.trim()) {
+      onSetStatus(item.id, pendingStatus);
+      setPendingStatus(null);
     }
     setShowNotes(false);
   };
 
+  const statusSlug = state.approval.toLowerCase().replace(/\s+/g, "-");
+  const cardClass = [
+    "content-card",
+    large ? "content-card-large" : "",
+    state.approval !== "Pending" ? `card-${statusSlug}` : "",
+  ].join(" ").trim();
+
   return (
-    <div
-      className={`content-card ${state.approval === "Approved" ? "card-approved" : ""} ${state.approval === "Flagged" ? "card-flagged" : ""}`}
-    >
+    <div className={cardClass}>
       <div className="card-header">
         <div className="card-badges">
           <TypeBadge type={item.type} />
-          {item.category && (
-            <span className="category-label">{item.category}</span>
-          )}
+          <CategoryBadge category={item.category} />
         </div>
         <StatusBadge approval={state.approval} />
       </div>
+
       <h3 className="card-title">{item.title}</h3>
-      {item.targetDate && (
-        <p className="card-date">{formatDate(item.targetDate)}</p>
-      )}
+      {item.targetDate && <p className="card-date">{formatDate(item.targetDate)}</p>}
       <p className="card-desc">{item.description}</p>
       {item.note && <p className="card-note-preset">Note: {item.note}</p>}
-      {item.status && (
-        <p className="card-write-status">Draft status: {item.status}</p>
+      {item.status && <p className="card-write-status">Draft status: {item.status}</p>}
+      {state.notes && !showNotes && (
+        <p className="card-saved-note">"{state.notes}"</p>
       )}
 
       <div className="card-actions">
-        <button
-          className={`btn btn-approve ${state.approval === "Approved" ? "active" : ""}`}
-          onClick={handleApprove}
-        >
-          Approve
-        </button>
-        <button
-          className={`btn btn-flag ${state.approval === "Flagged" ? "active" : ""}`}
-          onClick={handleFlag}
-        >
-          Flag
-        </button>
-        <button
-          className="btn btn-note"
-          onClick={() => setShowNotes(!showNotes)}
-        >
-          {showNotes ? "Close" : "Add Note"}
+        {ACTIONS.map(({ status, label, btnClass }) => (
+          <button
+            key={status}
+            className={`btn ${btnClass} ${state.approval === status ? "active" : ""}`}
+            onClick={() => handleAction(status)}
+          >
+            {label}
+          </button>
+        ))}
+        <button className="btn btn-note" onClick={() => setShowNotes(!showNotes)}>
+          {showNotes ? "Close" : state.notes ? "Edit Note" : "Add Note"}
         </button>
       </div>
 
-      {pendingFlag && !showNotes && (
-        <p className="note-required">A note is required when flagging.</p>
+      {pendingStatus && !showNotes && (
+        <p className="note-required">A note is required for {pendingStatus}.</p>
       )}
 
       {showNotes && (
         <div className="notes-panel">
-          {pendingFlag && (
-            <p className="note-required">
-              A note is required when flagging. Add your note and save.
-            </p>
-          )}
+          {pendingStatus && <p className="note-required">Add a note explaining why, then save.</p>}
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
@@ -176,17 +186,12 @@ function ContentCard({ item, state, onApprove, onFlag, onNote }) {
             rows={3}
           />
           <div className="notes-footer">
-            <button className="btn btn-save-note" onClick={handleSaveNote}>
-              Save Note
-            </button>
+            <button className="btn btn-save-note" onClick={handleSaveNote}>Save Note</button>
             {state.notesTimestamp && (
               <span className="note-timestamp">
                 Last saved:{" "}
                 {new Date(state.notesTimestamp).toLocaleString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
+                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
                 })}
               </span>
             )}
@@ -201,10 +206,12 @@ function SummaryBar({ itemStates }) {
   const counts = useMemo(() => {
     const vals = Object.values(itemStates);
     return {
-      total: vals.length,
+      total:    vals.length,
       approved: vals.filter((s) => s.approval === "Approved").length,
-      flagged: vals.filter((s) => s.approval === "Flagged").length,
-      pending: vals.filter((s) => s.approval === "Pending").length,
+      pending:  vals.filter((s) => s.approval === "Pending").length,
+      onhold:   vals.filter((s) => s.approval === "On Hold").length,
+      rejected: vals.filter((s) => s.approval === "Rejected").length,
+      changes:  vals.filter((s) => s.approval === "Changes Requested").length,
     };
   }, [itemStates]);
 
@@ -218,13 +225,21 @@ function SummaryBar({ itemStates }) {
         <span className="summary-count">{counts.approved}</span>
         <span className="summary-label">Approved</span>
       </div>
-      <div className="summary-item summary-flagged">
-        <span className="summary-count">{counts.flagged}</span>
-        <span className="summary-label">Flagged</span>
-      </div>
       <div className="summary-item summary-pending">
         <span className="summary-count">{counts.pending}</span>
         <span className="summary-label">Pending</span>
+      </div>
+      <div className="summary-item summary-onhold">
+        <span className="summary-count">{counts.onhold}</span>
+        <span className="summary-label">On Hold</span>
+      </div>
+      <div className="summary-item summary-rejected">
+        <span className="summary-count">{counts.rejected}</span>
+        <span className="summary-label">Rejected</span>
+      </div>
+      <div className="summary-item summary-changes">
+        <span className="summary-count">{counts.changes}</span>
+        <span className="summary-label">Revise</span>
       </div>
     </div>
   );
@@ -272,11 +287,7 @@ function SuggestionsSection({ suggestions, onAdd, onDelete }) {
             className="suggest-textarea"
             rows={3}
           />
-          <button
-            className="btn btn-save-note"
-            onClick={handleSubmit}
-            disabled={!title.trim()}
-          >
+          <button className="btn btn-save-note" onClick={handleSubmit} disabled={!title.trim()}>
             Submit Idea
           </button>
         </div>
@@ -288,106 +299,62 @@ function SuggestionsSection({ suggestions, onAdd, onDelete }) {
             <div key={s.id} className="suggestion-card">
               <div className="suggestion-body">
                 <p className="suggestion-title">{s.title}</p>
-                {s.description && (
-                  <p className="suggestion-desc">{s.description}</p>
-                )}
+                {s.description && <p className="suggestion-desc">{s.description}</p>}
                 <p className="suggestion-ts">
                   {new Date(s.createdAt).toLocaleString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
+                    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
                   })}
                 </p>
               </div>
-              <button
-                className="btn-delete"
-                onClick={() => onDelete(s.id)}
-                title="Remove"
-              >
-                ×
-              </button>
+              <button className="btn-delete" onClick={() => onDelete(s.id)} title="Remove">×</button>
             </div>
           ))}
         </div>
       ) : (
-        !open && (
-          <p className="suggestions-empty">No suggestions yet.</p>
-        )
+        !open && <p className="suggestions-empty">No suggestions yet.</p>
       )}
     </section>
   );
 }
 
 export default function App() {
-  const [itemStates, setItemStates] = useState(() =>
-    mergeState(contentItems, loadState())
-  );
+  const [itemStates, setItemStates] = useState(() => mergeState(contentItems, loadState()));
   const [suggestions, setSuggestions] = useState(() => loadSuggestions());
   const [filterType, setFilterType] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMonth, setFilterMonth] = useState("All");
 
-  useEffect(() => {
-    saveState(itemStates);
-  }, [itemStates]);
+  useEffect(() => { saveState(itemStates); }, [itemStates]);
+  useEffect(() => { saveSuggestions(suggestions); }, [suggestions]);
 
-  useEffect(() => {
-    saveSuggestions(suggestions);
-  }, [suggestions]);
-
-  const handleApprove = (id) => {
-    setItemStates((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], approval: "Approved" },
-    }));
-  };
-
-  const handleFlag = (id) => {
-    setItemStates((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], approval: "Flagged" },
-    }));
+  const handleSetStatus = (id, status) => {
+    setItemStates((prev) => ({ ...prev, [id]: { ...prev[id], approval: status } }));
   };
 
   const handleNote = (id, text) => {
     setItemStates((prev) => ({
       ...prev,
-      [id]: {
-        ...prev[id],
-        notes: text,
-        notesTimestamp: new Date().toISOString(),
-      },
+      [id]: { ...prev[id], notes: text, notesTimestamp: new Date().toISOString() },
     }));
   };
 
   const handleApproveMonth = (month) => {
     setItemStates((prev) => {
       const next = { ...prev };
-      contentItems
-        .filter((item) => item.month === month)
-        .forEach((item) => {
-          if (next[item.id].approval === "Pending") {
-            next[item.id] = { ...next[item.id], approval: "Approved" };
-          }
-        });
+      contentItems.filter((item) => item.month === month).forEach((item) => {
+        if (next[item.id].approval === "Pending") {
+          next[item.id] = { ...next[item.id], approval: "Approved" };
+        }
+      });
       return next;
     });
   };
 
   const handleReset = () => {
-    if (
-      window.confirm(
-        "Reset all approvals, flags, and notes? This cannot be undone."
-      )
-    ) {
+    if (window.confirm("Reset all statuses and notes? This cannot be undone.")) {
       const fresh = {};
       contentItems.forEach((item) => {
-        fresh[item.id] = {
-          approval: "Pending",
-          notes: "",
-          notesTimestamp: null,
-        };
+        fresh[item.id] = { approval: "Pending", notes: "", notesTimestamp: null };
       });
       setItemStates(fresh);
     }
@@ -405,23 +372,19 @@ export default function App() {
   };
 
   const types = ["All", ...new Set(contentItems.map((i) => i.type))];
-  const statuses = ["All", "Pending", "Approved", "Flagged"];
+  const statuses = ["All", "Pending", "Approved", "On Hold", "Rejected", "Changes Requested"];
 
   const filtered = contentItems.filter((item) => {
     if (filterType !== "All" && item.type !== filterType) return false;
     if (filterMonth !== "All" && item.month !== filterMonth) return false;
-    if (
-      filterStatus !== "All" &&
-      itemStates[item.id]?.approval !== filterStatus
-    )
-      return false;
+    if (filterStatus !== "All" && itemStates[item.id]?.approval !== filterStatus) return false;
     return true;
   });
 
   const groupedByMonth = MONTHS.map((month) => ({
     month,
     items: filtered.filter((item) => item.month === month),
-  })).filter((group) => group.items.length > 0);
+  })).filter((g) => g.items.length > 0);
 
   return (
     <div className="app">
@@ -430,9 +393,7 @@ export default function App() {
           <h1>IDT Content Plan</h1>
           <p className="header-sub">Review and approve upcoming content</p>
         </div>
-        <button className="btn btn-reset" onClick={handleReset}>
-          Reset All
-        </button>
+        <button className="btn btn-reset" onClick={handleReset}>Reset All</button>
       </header>
 
       <SummaryBar itemStates={itemStates} />
@@ -440,42 +401,21 @@ export default function App() {
       <div className="filters">
         <div className="filter-group">
           <label>Type</label>
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-          >
-            {types.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+            {types.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="filter-group">
           <label>Status</label>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            {statuses.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div className="filter-group">
           <label>Month</label>
-          <select
-            value={filterMonth}
-            onChange={(e) => setFilterMonth(e.target.value)}
-          >
+          <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
             <option value="All">All</option>
-            {MONTHS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
+            {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
       </div>
@@ -483,44 +423,34 @@ export default function App() {
       {groupedByMonth.map(({ month, items }) => (
         <section key={month} className="month-section">
           <div className="month-header">
-            <h2>{month === "Ongoing" ? "Ongoing Projects" : `${month} 2026`}</h2>
+            <h2>{month === "Ongoing" ? "Ongoing" : `${month} 2026`}</h2>
             {month !== "Ongoing" && (
-              <button
-                className="btn btn-approve-all"
-                onClick={() => handleApproveMonth(month)}
-              >
+              <button className="btn btn-approve-all" onClick={() => handleApproveMonth(month)}>
                 Approve All {month}
               </button>
             )}
           </div>
 
-          {["Blog", "LinkedIn", "Video", "Project"]
-            .filter((type) => items.some((i) => i.type === type))
-            .map((type) => (
-              <div key={type} className="type-group">
-                <h3 className="type-group-title">
-                  <span
-                    className="type-dot"
-                    style={{ background: TYPE_COLORS[type] || "#666" }}
+          {TYPE_ORDER.filter((type) => items.some((i) => i.type === type)).map((type) => (
+            <div key={type} className="type-group">
+              <h3 className="type-group-title">
+                <span className="type-dot" style={{ background: TYPE_COLORS[type] || "#666" }} />
+                {type}
+              </h3>
+              <div className={type === "Blog" ? "cards-grid cards-grid-blog" : "cards-grid"}>
+                {items.filter((i) => i.type === type).map((item) => (
+                  <ContentCard
+                    key={item.id}
+                    item={item}
+                    state={itemStates[item.id]}
+                    onSetStatus={handleSetStatus}
+                    onNote={handleNote}
+                    large={type === "Blog"}
                   />
-                  {type}
-                </h3>
-                <div className="cards-grid">
-                  {items
-                    .filter((i) => i.type === type)
-                    .map((item) => (
-                      <ContentCard
-                        key={item.id}
-                        item={item}
-                        state={itemStates[item.id]}
-                        onApprove={handleApprove}
-                        onFlag={handleFlag}
-                        onNote={handleNote}
-                      />
-                    ))}
-                </div>
+                ))}
               </div>
-            ))}
+            </div>
+          ))}
         </section>
       ))}
 
