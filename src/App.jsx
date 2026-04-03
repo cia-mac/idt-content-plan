@@ -3,6 +3,7 @@ import contentItems from "./data/contentItems";
 import "./App.css";
 
 const STORAGE_KEY = "idt-content-plan-state";
+const SUGGESTIONS_KEY = "idt-content-plan-suggestions";
 
 function loadState() {
   try {
@@ -17,12 +18,24 @@ function saveState(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function loadSuggestions() {
+  try {
+    const raw = localStorage.getItem(SUGGESTIONS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSuggestions(suggestions) {
+  localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(suggestions));
+}
+
 function mergeState(items, stored) {
   const merged = {};
   items.forEach((item) => {
     if (stored[item.id]) {
       const s = { ...stored[item.id] };
-      // migrate old "Objected" status to "Flagged"
       if (s.approval === "Objected") s.approval = "Flagged";
       merged[item.id] = s;
     } else {
@@ -217,10 +230,100 @@ function SummaryBar({ itemStates }) {
   );
 }
 
+function SuggestionsSection({ suggestions, onAdd, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+
+  const handleSubmit = () => {
+    if (!title.trim()) return;
+    onAdd({ title: title.trim(), description: desc.trim() });
+    setTitle("");
+    setDesc("");
+    setOpen(false);
+  };
+
+  return (
+    <section className="suggestions-section">
+      <div className="suggestions-header">
+        <div>
+          <h2 className="suggestions-title">Suggestions</h2>
+          <p className="suggestions-sub">Ideas Luiz wants to see covered</p>
+        </div>
+        <button className="btn btn-suggest" onClick={() => setOpen(!open)}>
+          {open ? "Cancel" : "+ Suggest an Idea"}
+        </button>
+      </div>
+
+      {open && (
+        <div className="suggest-form">
+          <input
+            type="text"
+            placeholder="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="suggest-input"
+            autoFocus
+          />
+          <textarea
+            placeholder="Short description (optional)"
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            className="suggest-textarea"
+            rows={3}
+          />
+          <button
+            className="btn btn-save-note"
+            onClick={handleSubmit}
+            disabled={!title.trim()}
+          >
+            Submit Idea
+          </button>
+        </div>
+      )}
+
+      {suggestions.length > 0 ? (
+        <div className="suggestions-list">
+          {suggestions.map((s) => (
+            <div key={s.id} className="suggestion-card">
+              <div className="suggestion-body">
+                <p className="suggestion-title">{s.title}</p>
+                {s.description && (
+                  <p className="suggestion-desc">{s.description}</p>
+                )}
+                <p className="suggestion-ts">
+                  {new Date(s.createdAt).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+              <button
+                className="btn-delete"
+                onClick={() => onDelete(s.id)}
+                title="Remove"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !open && (
+          <p className="suggestions-empty">No suggestions yet.</p>
+        )
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [itemStates, setItemStates] = useState(() =>
     mergeState(contentItems, loadState())
   );
+  const [suggestions, setSuggestions] = useState(() => loadSuggestions());
   const [filterType, setFilterType] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMonth, setFilterMonth] = useState("All");
@@ -228,6 +331,10 @@ export default function App() {
   useEffect(() => {
     saveState(itemStates);
   }, [itemStates]);
+
+  useEffect(() => {
+    saveSuggestions(suggestions);
+  }, [suggestions]);
 
   const handleApprove = (id) => {
     setItemStates((prev) => ({
@@ -284,6 +391,17 @@ export default function App() {
       });
       setItemStates(fresh);
     }
+  };
+
+  const handleAddSuggestion = ({ title, description }) => {
+    setSuggestions((prev) => [
+      ...prev,
+      { id: Date.now().toString(), title, description, createdAt: new Date().toISOString() },
+    ]);
+  };
+
+  const handleDeleteSuggestion = (id) => {
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
   };
 
   const types = ["All", ...new Set(contentItems.map((i) => i.type))];
@@ -405,6 +523,12 @@ export default function App() {
             ))}
         </section>
       ))}
+
+      <SuggestionsSection
+        suggestions={suggestions}
+        onAdd={handleAddSuggestion}
+        onDelete={handleDeleteSuggestion}
+      />
 
       <footer className="app-footer">
         <p>IDT Content Plan Review Tool. Data stored locally in your browser.</p>

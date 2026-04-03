@@ -398,6 +398,158 @@ body {
   color: #666;
 }
 
+/* Suggestions */
+.suggestions-section {
+  margin-top: 16px;
+  padding: 36px;
+  background: #161616;
+  border: 2px dashed #333;
+  border-radius: 16px;
+  margin-bottom: 48px;
+}
+
+.suggestions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.suggestions-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #d4a017;
+}
+
+.suggestions-sub {
+  font-size: 18px;
+  color: #777;
+  margin-top: 4px;
+}
+
+.btn-suggest {
+  background: #d4a017;
+  color: #111;
+  border: none;
+  padding: 14px 28px;
+  font-size: 20px;
+  font-weight: 700;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-suggest:hover {
+  background: #e0b020;
+}
+
+.suggest-form {
+  background: #1e1e1e;
+  border-radius: 12px;
+  padding: 28px;
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.suggest-input {
+  background: #111;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 16px 20px;
+  font-size: 22px;
+  font-family: inherit;
+  width: 100%;
+}
+
+.suggest-input:focus {
+  outline: none;
+  border-color: #d4a017;
+}
+
+.suggest-textarea {
+  background: #111;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 16px 20px;
+  font-size: 20px;
+  font-family: inherit;
+  resize: vertical;
+  width: 100%;
+}
+
+.suggest-textarea:focus {
+  outline: none;
+  border-color: #d4a017;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.suggestion-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-left: 5px solid #d4a017;
+  border-radius: 12px;
+  padding: 24px 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.suggestion-body {
+  flex: 1;
+}
+
+.suggestion-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 8px;
+}
+
+.suggestion-desc {
+  font-size: 20px;
+  color: #aaa;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.suggestion-ts {
+  font-size: 16px;
+  color: #555;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 32px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-delete:hover {
+  color: #e74c3c;
+}
+
+.suggestions-empty {
+  font-size: 20px;
+  color: #555;
+  text-align: center;
+  padding: 24px 0;
+}
+
 /* Footer */
 .app-footer {
   text-align: center;
