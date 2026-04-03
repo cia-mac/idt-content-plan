@@ -21,7 +21,10 @@ function mergeState(items, stored) {
   const merged = {};
   items.forEach((item) => {
     if (stored[item.id]) {
-      merged[item.id] = { ...stored[item.id] };
+      const s = { ...stored[item.id] };
+      // migrate old "Objected" status to "Flagged"
+      if (s.approval === "Objected") s.approval = "Flagged";
+      merged[item.id] = s;
     } else {
       merged[item.id] = { approval: "Pending", notes: "", notesTimestamp: null };
     }
@@ -49,7 +52,7 @@ function StatusBadge({ approval }) {
   const colors = {
     Pending: "#666",
     Approved: "#27ae60",
-    Objected: "#e74c3c",
+    Flagged: "#e67e22",
   };
   return (
     <span className="status-badge" style={{ background: colors[approval] }}>
@@ -69,38 +72,38 @@ function TypeBadge({ type }) {
   );
 }
 
-function ContentCard({ item, state, onApprove, onObject, onNote }) {
+function ContentCard({ item, state, onApprove, onFlag, onNote }) {
   const [showNotes, setShowNotes] = useState(false);
   const [noteText, setNoteText] = useState(state.notes || "");
-  const [pendingObject, setPendingObject] = useState(false);
+  const [pendingFlag, setPendingFlag] = useState(false);
 
   const handleApprove = () => {
-    setPendingObject(false);
+    setPendingFlag(false);
     onApprove(item.id);
   };
 
-  const handleObject = () => {
+  const handleFlag = () => {
     if (!state.notes && !noteText.trim()) {
-      setPendingObject(true);
+      setPendingFlag(true);
       setShowNotes(true);
       return;
     }
-    setPendingObject(false);
-    onObject(item.id);
+    setPendingFlag(false);
+    onFlag(item.id);
   };
 
   const handleSaveNote = () => {
     onNote(item.id, noteText);
-    if (pendingObject && noteText.trim()) {
-      onObject(item.id);
-      setPendingObject(false);
+    if (pendingFlag && noteText.trim()) {
+      onFlag(item.id);
+      setPendingFlag(false);
     }
     setShowNotes(false);
   };
 
   return (
     <div
-      className={`content-card ${state.approval === "Approved" ? "card-approved" : ""} ${state.approval === "Objected" ? "card-objected" : ""}`}
+      className={`content-card ${state.approval === "Approved" ? "card-approved" : ""} ${state.approval === "Flagged" ? "card-flagged" : ""}`}
     >
       <div className="card-header">
         <div className="card-badges">
@@ -129,10 +132,10 @@ function ContentCard({ item, state, onApprove, onObject, onNote }) {
           Approve
         </button>
         <button
-          className={`btn btn-object ${state.approval === "Objected" ? "active" : ""}`}
-          onClick={handleObject}
+          className={`btn btn-flag ${state.approval === "Flagged" ? "active" : ""}`}
+          onClick={handleFlag}
         >
-          Object
+          Flag
         </button>
         <button
           className="btn btn-note"
@@ -142,15 +145,15 @@ function ContentCard({ item, state, onApprove, onObject, onNote }) {
         </button>
       </div>
 
-      {pendingObject && !showNotes && (
-        <p className="note-required">A note is required when objecting.</p>
+      {pendingFlag && !showNotes && (
+        <p className="note-required">A note is required when flagging.</p>
       )}
 
       {showNotes && (
         <div className="notes-panel">
-          {pendingObject && (
+          {pendingFlag && (
             <p className="note-required">
-              A note is required when objecting. Add your note and save.
+              A note is required when flagging. Add your note and save.
             </p>
           )}
           <textarea
@@ -187,7 +190,7 @@ function SummaryBar({ itemStates }) {
     return {
       total: vals.length,
       approved: vals.filter((s) => s.approval === "Approved").length,
-      objected: vals.filter((s) => s.approval === "Objected").length,
+      flagged: vals.filter((s) => s.approval === "Flagged").length,
       pending: vals.filter((s) => s.approval === "Pending").length,
     };
   }, [itemStates]);
@@ -202,9 +205,9 @@ function SummaryBar({ itemStates }) {
         <span className="summary-count">{counts.approved}</span>
         <span className="summary-label">Approved</span>
       </div>
-      <div className="summary-item summary-objected">
-        <span className="summary-count">{counts.objected}</span>
-        <span className="summary-label">Objected</span>
+      <div className="summary-item summary-flagged">
+        <span className="summary-count">{counts.flagged}</span>
+        <span className="summary-label">Flagged</span>
       </div>
       <div className="summary-item summary-pending">
         <span className="summary-count">{counts.pending}</span>
@@ -233,10 +236,10 @@ export default function App() {
     }));
   };
 
-  const handleObject = (id) => {
+  const handleFlag = (id) => {
     setItemStates((prev) => ({
       ...prev,
-      [id]: { ...prev[id], approval: "Objected" },
+      [id]: { ...prev[id], approval: "Flagged" },
     }));
   };
 
@@ -268,7 +271,7 @@ export default function App() {
   const handleReset = () => {
     if (
       window.confirm(
-        "Reset all approvals, objections, and notes? This cannot be undone."
+        "Reset all approvals, flags, and notes? This cannot be undone."
       )
     ) {
       const fresh = {};
@@ -284,7 +287,7 @@ export default function App() {
   };
 
   const types = ["All", ...new Set(contentItems.map((i) => i.type))];
-  const statuses = ["All", "Pending", "Approved", "Objected"];
+  const statuses = ["All", "Pending", "Approved", "Flagged"];
 
   const filtered = contentItems.filter((item) => {
     if (filterType !== "All" && item.type !== filterType) return false;
@@ -393,7 +396,7 @@ export default function App() {
                         item={item}
                         state={itemStates[item.id]}
                         onApprove={handleApprove}
-                        onObject={handleObject}
+                        onFlag={handleFlag}
                         onNote={handleNote}
                       />
                     ))}
