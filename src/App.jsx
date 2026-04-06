@@ -5,6 +5,7 @@ import "./App.css";
 const STORAGE_KEY  = "the-brief-state";
 const SUGGEST_KEY  = "the-brief-suggestions";
 const EDIT_PIN     = "6868";
+const AI_API_URL   = "https://pipeline-ai.ciamac.workers.dev";
 
 // ─── persistence ─────────────────────────────────────────────────────────────
 function loadState()       { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } }
@@ -455,6 +456,86 @@ function SuggestionsSection({ suggestions, onAdd, onDelete }) {
   );
 }
 
+// ─── Prompt Bar ─────────────────────────────────────────────────────────────
+function PromptBar({ items, itemStates }) {
+  const [prompt, setPrompt]     = useState("");
+  const [response, setResponse] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
+
+  const handleSubmit = async () => {
+    const q = prompt.trim();
+    if (!q || loading) return;
+
+    setLoading(true);
+    setError("");
+    setResponse("");
+
+    // Build enriched items array with current state
+    const enriched = items.map(item => {
+      const st = itemStates[item.id] || {};
+      return {
+        title: item.title,
+        type: item.type,
+        category: item.category || "",
+        month: item.month,
+        targetDate: item.targetDate || "",
+        description: item.description,
+        approval: st.approval || "Proposed",
+        notes: st.notes || "",
+      };
+    });
+
+    try {
+      const res = await fetch(AI_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: q, items: enriched }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Something went wrong.");
+      } else {
+        setResponse(data.response);
+      }
+    } catch (err) {
+      setError("Could not reach the AI service.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="prompt-bar">
+      <div className="prompt-input-row">
+        <input
+          type="text"
+          className="prompt-input"
+          placeholder="Ask about the pipeline... e.g. 'What's waiting on Luiz?'"
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleSubmit()}
+          disabled={loading}
+        />
+        <button
+          className="btn btn-prompt-send"
+          onClick={handleSubmit}
+          disabled={loading || !prompt.trim()}
+        >
+          {loading ? "..." : "Ask"}
+        </button>
+      </div>
+      {error && <p className="prompt-error">{error}</p>}
+      {response && (
+        <div className="prompt-response">
+          <button className="prompt-dismiss" onClick={() => setResponse("")}>x</button>
+          <div className="prompt-response-text">{response}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [itemStates,  setItemStates]  = useState(() => mergeState(contentItems, loadState()));
@@ -531,6 +612,8 @@ export default function App() {
           )}
         </div>
       </header>
+
+      <PromptBar items={contentItems} itemStates={itemStates} />
 
       <Legend />
       <SummaryBar itemStates={itemStates} />
