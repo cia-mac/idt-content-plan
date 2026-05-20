@@ -91,7 +91,9 @@ const contentItems = [
     month: "April",
     targetDate: "2026-04-18",
     description: "RaceTech deployment deep dive. 15 CrashCam POV systems. Custom SDI firmware. Must publish before Apr 21 LinkedIn post.",
-    status: "Draft"
+    status: "Published",
+    publishedUrl: "https://idtcameras.com/sdi-high-speed-cameras-for-automated-broadcast-replay/",
+    note: "2026-04-08: Discovered live without consent. Left up. Author/byline check needed for SEO E-E-A-T."
   },
   {
     id: "apr-blog-2",
